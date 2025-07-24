@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kontaktformular mit Direktversand</title>
+    <!-- Tailwind CSS for modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts for a clean look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        #viewer-container:empty::before {
+            content: '3D-Vorschau wird hier angezeigt...';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: #9ca3af; font-size: 1rem;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 24px; height: 24px;
+            border-radius: 50%;
+            border-left-color: #fff;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-2xl bg-white rounded-xl shadow-lg p-6 md:p-8">
+        <h2 class="text-2xl md:text-3xl font-bold text-center text-gray-800 mb-6">Senden Sie uns eine Nachricht</h2>
+        
+        <form id="contact-form" class="space-y-5">
+            <!-- Form fields remain the same -->
+            <div>
+                <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <input type="text" id="name" name="name" required class="w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 transition">
+            </div>
+            <div>
+                <label for="email" class="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
+                <input type="email" id="email" name="email" required class="w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 transition">
+            </div>
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label for="message" class="block text-sm font-medium text-gray-700">Nachricht</label>
+                    <button type="button" id="improve-message-btn" class="text-xs text-blue-600 hover:text-blue-800 font-semibold">✨ Nachricht verbessern</button>
+                </div>
+                <textarea id="message" name="message" rows="4" required class="w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 transition"></textarea>
+            </div>
+            <div>
+                <label for="file-upload" class="block text-sm font-medium text-gray-700 mb-1">3D-Datei (optional, .stl oder .obj)</label>
+                <input type="file" id="file-upload" name="file" accept=".stl,.obj" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
+            </div>
+            
+            <!-- 3D Viewer and AI analysis parts remain the same -->
+            <div id="viewer-container" class="w-full h-72 bg-gray-200 border-2 border-dashed border-gray-300 rounded-lg relative mt-4 hidden"></div>
+            <button type="button" id="gemini-analysis-btn" class="w-full bg-purple-600 text-white font-bold py-3 px-4 rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition-all duration-300 shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed hidden">
+                ✨ Druck-Analyse starten
+            </button>
+            <div id="gemini-result-area" class="p-4 bg-gray-50 rounded-lg border border-gray-200 hidden">
+                <h4 class="font-bold text-lg text-gray-800 mb-2">KI-Analyse Ergebnis</h4>
+                <div id="gemini-result-content"></div>
+            </div>
+
+            <!-- Submit Button -->
+            <button type="submit" id="submit-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-300 shadow-md flex items-center justify-center disabled:bg-gray-400">
+                <span id="submit-btn-text">Anfrage senden</span>
+                <div id="submit-spinner" class="spinner hidden ml-3"></div>
+            </button>
+            
+            <!-- Status Message Area -->
+            <div id="status-message" class="text-center font-medium"></div>
+        </form>
+    </div>
+
+    <!-- three.js and Gemini logic remains the same -->
+    <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/" }}</script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- DOM Elements ---
+        const contactForm = document.getElementById('contact-form');
+        const submitBtn = document.getElementById('submit-btn');
+        const submitBtnText = document.getElementById('submit-btn-text');
+        const submitSpinner = document.getElementById('submit-spinner');
+        const statusMessage = document.getElementById('status-message');
+        // (Other DOM elements are the same)
+        const fileInput = document.getElementById('file-upload');
+        const viewerContainer = document.getElementById('viewer-container');
+        const improveMessageBtn = document.getElementById('improve-message-btn');
+        const messageTextarea = document.getElementById('message');
+        const geminiAnalysisBtn = document.getElementById('gemini-analysis-btn');
+        const geminiResultArea = document.getElementById('gemini-result-area');
+        const geminiResultContent = document.getElementById('gemini-result-content');
+        
+        // --- Form Submission Logic (NEW) ---
+        contactForm.addEventListener('submit', async (event) => {
+            event.preventDefault(); // Prevent default browser submission
+            
+            // Show loading state
+            submitBtn.disabled = true;
+            submitBtnText.textContent = 'Sende...';
+            submitSpinner.classList.remove('hidden');
+            statusMessage.textContent = '';
+
+            // Create FormData object to send files and text
+            const formData = new FormData();
+            formData.append('name', document.getElementById('name').value);
+            formData.append('email', document.getElementById('email').value);
+            formData.append('message', messageTextarea.value);
+            
+            // Append AI analysis if it exists
+            if (!geminiResultArea.classList.contains('hidden') && geminiResultContent.innerText) {
+                formData.append('analysis', geminiResultContent.innerText);
+            }
+
+            // Append file if selected
+            if (fileInput.files.length > 0) {
+                formData.append('file', fileInput.files[0]);
+            }
+
+            try {
+                // Send the data to your server endpoint
+                // WICHTIG: Ersetzen Sie '/send-email' durch die URL Ihres echten Server-Endpunkts
+                const response = await fetch('/send-email', {
+                    method: 'POST',
+                    body: formData, // No 'Content-Type' header needed, browser sets it for FormData
+                });
+
+                if (response.ok) {
+                    statusMessage.textContent = 'Vielen Dank! Ihre Anfrage wurde erfolgreich gesendet.';
+                    statusMessage.className = 'text-center font-medium text-green-600';
+                    contactForm.reset(); // Clear the form
+                    viewerContainer.style.display = 'none'; // Hide viewer
+                    geminiResultArea.classList.add('hidden');
+                } else {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Ein Serverfehler ist aufgetreten.');
+                }
+
+            } catch (error) {
+                statusMessage.textContent = `Fehler: ${error.message}`;
+                statusMessage.className = 'text-center font-medium text-red-600';
+            } finally {
+                // Reset button state
+                submitBtn.disabled = false;
+                submitBtnText.textContent = 'Anfrage senden';
+                submitSpinner.classList.add('hidden');
+            }
+        });
+
+        // --- 3D Viewer and Gemini Logic (unchanged from previous version) ---
+        let scene, camera, renderer, controls, currentModel;
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                viewerContainer.style.display = 'none';
+                geminiAnalysisBtn.classList.add('hidden');
+                return;
+            }
+            viewerContainer.style.display = 'block';
+            geminiAnalysisBtn.classList.remove('hidden');
+            geminiAnalysisBtn.disabled = false;
+            geminiResultArea.classList.add('hidden');
+            if (renderer) { renderer.dispose(); viewerContainer.innerHTML = ''; }
+            initViewer();
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const fileContent = e.target.result;
+                const extension = file.name.split('.').pop().toLowerCase();
+                let material = new THREE.MeshStandardMaterial({ color: 0x007bff, metalness: 0.1, roughness: 0.5 });
+                if (extension === 'stl') {
+                    currentModel = new THREE.Mesh(new STLLoader().parse(fileContent), material);
+                } else if (extension === 'obj') {
+                    currentModel = new OBJLoader().parse(fileContent);
+                    currentModel.traverse((child) => { if (child instanceof THREE.Mesh) child.material = material; });
+                } else { console.error("Unsupported file type:", extension); viewerContainer.style.display = 'none'; return; }
+                addModelToScene(currentModel);
+            };
+            if (file.name.toLowerCase().endsWith('.stl')) reader.readAsArrayBuffer(file); else reader.readAsText(file);
+        });
+        function initViewer() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xe5e7eb);
+            camera = new THREE.PerspectiveCamera(75, viewerContainer.clientWidth / viewerContainer.clientHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+            renderer.setSize(viewerContainer.clientWidth, viewerContainer.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            viewerContainer.appendChild(renderer.domElement);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            directionalLight.position.set(100, 100, 100);
+            scene.add(directionalLight);
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            const animate = () => { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); };
+            animate();
+            window.addEventListener('resize', () => {
+                camera.aspect = viewerContainer.clientWidth / viewerContainer.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(viewerContainer.clientWidth, viewerContainer.clientHeight);
+            }, false);
+        }
+        function addModelToScene(object) {
+            if (currentModel) scene.remove(currentModel);
+            currentModel = object;
+            scene.add(currentModel);
+            const box = new THREE.Box3().setFromObject(currentModel);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            currentModel.position.sub(center);
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fov = camera.fov * (Math.PI / 180);
+            let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 1.5;
+            camera.position.set(0, 0, cameraZ);
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }
+        const apiKey = "";
+        async function callGemini(prompt, base64ImageData = null) {
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+            let parts = [{ text: prompt }];
+            if (base64ImageData) { parts.push({ inlineData: { mimeType: "image/png", data: base64ImageData } }); }
+            const payload = { contents: [{ parts: parts }] };
+            try {
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!response.ok) { throw new Error(`API request failed with status ${response.status}`); }
+                const result = await response.json();
+                if (result.candidates && result.candidates.length > 0) { return result.candidates[0].content.parts[0].text; }
+                throw new Error("No content found in API response.");
+            } catch (error) { console.error("Gemini API call failed:", error); return `Fehler bei der KI-Analyse: ${error.message}.`; }
+        }
+        improveMessageBtn.addEventListener('click', async () => {
+            const originalText = messageTextarea.value;
+            if (!originalText.trim()) { return; }
+            const prompt = `Bitte formuliere den folgenden Text für eine professionelle Anfrage an einen 3D-Druck-Dienstleister um. Verbessere Grammatik und Stil, aber behalte die Kernaussage bei. Gib nur den verbesserten Text zurück, ohne einleitende Sätze.\n\nOriginaltext:\n"${originalText}"`;
+            improveMessageBtn.disabled = true; improveMessageBtn.textContent = 'Bearbeite...';
+            const improvedText = await callGemini(prompt);
+            messageTextarea.value = improvedText.replace(/\"/g, '');
+            improveMessageBtn.disabled = false; improveMessageBtn.innerHTML = '✨ Nachricht verbessern';
+        });
+        geminiAnalysisBtn.addEventListener('click', async () => {
+            geminiAnalysisBtn.disabled = true; geminiAnalysisBtn.textContent = 'Analysiere...';
+            geminiResultArea.classList.remove('hidden');
+            geminiResultContent.innerHTML = '<div class="flex justify-center items-center"><div class="spinner"></div></div>';
+            const base64ImageData = renderer.domElement.toDataURL('image/png').split(',')[1];
+            const userMessage = messageTextarea.value || "Keine spezifische Beschreibung vorhanden.";
+            const prompt = `Du bist ein Experte für 3D-Druck. Analysiere das beigefügte Bild eines 3D-Modells und die Projektbeschreibung des Nutzers. Gib eine kurze, hilfreiche Analyse in zwei Abschnitten zurück. Verwende Markdown für die Formatierung.\n\n**Projektbeschreibung des Nutzers:** "${userMessage}"\n\n---\n\n**Analyse:**\n\n**1. Visuelles Feedback (basierend auf dem Bild):**\nGib eine Einschätzung zur Druckbarkeit. Achte auf mögliche Probleme wie große Überhänge (die Stützstrukturen benötigen), sehr dünne Wände, feine Details, die eventuell nicht gut gedruckt werden können, oder eine flache Unterseite für gute Haftung.\n\n**2. Materialvorschläge (basierend auf der Beschreibung):**\nSchlage 1-2 geeignete Materialien (z.B. PLA, PETG, ABS, TPU) vor und begründe kurz, warum sie für den vom Nutzer beschriebenen Anwendungszweck passen. Wenn der Zweck unklar ist, gib allgemeine Empfehlungen.\n\nGib nur die Analyse zurück, ohne einleitende Sätze.`;
+            const analysisResult = await callGemini(prompt, base64ImageData);
+            let htmlResult = analysisResult.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+            geminiResultContent.innerHTML = htmlResult;
+            geminiAnalysisBtn.disabled = false; geminiAnalysisBtn.innerHTML = '✨ Druck-Analyse starten';
+        });
+    </script>
+</body>
+</html>
